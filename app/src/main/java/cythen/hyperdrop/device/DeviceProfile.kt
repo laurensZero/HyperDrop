@@ -1,5 +1,6 @@
 package cythen.hyperdrop.device
 
+import cythen.hyperdrop.R
 import cythen.hyperdrop.device.protocol.GaiaCommandTable
 
 /**
@@ -25,4 +26,16 @@ interface DeviceProfile {
 
     /** Byte-level command vocabulary for this model's GAIA flavour. */
     val commandTable: GaiaCommandTable
+
+    /** Bundled product artwork used when the user has not selected a custom image. */
+    val defaultImageRes: Int
+        get() = R.drawable.img_box
+
+    /** Bundled left-ear artwork for the focus island's left slot; defaults to [defaultImageRes]. */
+    val defaultLeftImageRes: Int
+        get() = defaultImageRes
+
+    /** Bundled right-ear artwork for the focus island's right slot; defaults to [defaultImageRes]. */
+    val defaultRightImageRes: Int
+        get() = defaultImageRes
 }

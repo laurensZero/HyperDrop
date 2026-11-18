@@ -34,4 +34,8 @@ object PuddingProfile : DeviceProfile {
     )
 
     override val commandTable = PuddingCommandTable
+
+    // The focus island shows per-ear artwork, same as the original hardcoded island.
+    override val defaultLeftImageRes: Int = R.drawable.img_left
+    override val defaultRightImageRes: Int = R.drawable.img_right
 }

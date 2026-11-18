@@ -44,6 +44,15 @@ private const val TAG = "HyperDrop-DeviceSession"
 private const val AUTO_RECONNECT_DELAY_MS = 120_000L
 private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 private const val DEFAULT_GAIN_LEVEL = 1 // medium (UI low/medium/high = 0/1/2)
+/** After an app-originated noise-mode SET, query responses that disagree with the target
+ *  within this window are the earbud's stale pre-SET state (Robin applies the SET
+ *  asynchronously and never echoes it) and are ignored. */
+private const val ANC_CONFIRM_WINDOW_MS = 3_000L
+/** Delayed re-query after a SET; its response lands outside the confirm window, so the UI
+ *  converges even though Robin sends no SET echo at all. */
+private const val ANC_CONFIRM_QUERY_DELAY_MS = 4_000L
+/** Noise-mode poll interval while an ANC surface (app page / popup / system page) is open. */
+private const val ANC_UI_POLL_INTERVAL_MS = 5_000L
 
 /** UI/system write actions that must not reach the earbuds while control is yielded. */
 private val YIELD_BLOCKED_ACTIONS = setOf(
@@ -77,6 +86,9 @@ class DeviceSession {
     private var lastTempBatt = 0
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc: Int = 1
+    private var pendingAnc: Int? = null
+    private var pendingAncUntilMs: Long = 0L
+    private var ancPollJob: kotlinx.coroutines.Job? = null
     /** -1 = unknown / not in smart mode; otherwise a [NoiseControlMode].ordinal of the
      *  level smart mode is currently auto-applying (light/medium/deep). */
     private var currentSmartAncLevel: Int = -1
@@ -224,6 +236,7 @@ class DeviceSession {
             }
             OppoPodsAction.ACTION_PODS_UI_INIT -> {
                 markAppUiActive()
+                startAncPoll()
                 Log.i(TAG, "UI Init")
                 changeUIConnectionState(currentConnectionState())
                 if (::currentBatteryParams.isInitialized)
@@ -264,6 +277,10 @@ class DeviceSession {
                 setANCMode(status)
             }
             OppoPodsAction.ACTION_REFRESH_STATUS -> {
+                // A refresh request is itself proof that some surface is showing state: renew
+                // the app-UI window so long-lived surfaces (e.g. the popup's own 15s loop)
+                // keep receiving status broadcasts and the noise-mode poll keeps running.
+                markAppUiActive()
                 queryStatus(immediateReconnect = true)
             }
             OppoPodsAction.ACTION_TRANSPARENCY_VOCAL_ENHANCEMENT_SET -> {
@@ -773,6 +790,10 @@ class DeviceSession {
                 delay(80)
                 sendPacketSafe(GaiaTransport.v4(commandTable().queryBatteryLevels))
 
+                // The handshake queries above already reflect current state; restart the poll
+                // here so a reconnect mid-UI keeps the open surface updating.
+                if (isAppUiActive()) startAncPoll()
+
                 changeUIConnectionState("connected")
                 sendAppStatusBroadcast(OppoPodsAction.ACTION_PODS_CONNECTED) {
                     putExtra("address", mDevice.address)
@@ -834,6 +855,8 @@ class DeviceSession {
     private fun closeSocketOnly() {
         readerJob?.cancel()
         readerJob = null
+        ancPollJob?.cancel()
+        ancPollJob = null
         decoder.reset()
         try {
             socket?.close()
@@ -874,13 +897,23 @@ class DeviceSession {
         Log.v(TAG, "GAIA payload: ${payload.toHexString(HexFormat.UpperCase)}")
         when (val report = commandTable().parse(payload)) {
             is GaiaReport.AncMode -> {
+                val pending = pendingAnc
+                if (pending != null && !report.isNotification &&
+                    report.uiStatus != pending &&
+                    SystemClock.elapsedRealtime() < pendingAncUntilMs
+                ) {
+                    Log.w(TAG, "ignoring stale noise mode during SET confirm window: ui=${report.uiStatus} pending=$pending")
+                    return
+                }
+                pendingAnc = null
+                pendingAncUntilMs = 0L
                 val previousAnc = currentAnc
                 currentAnc = report.uiStatus
                 changeUIAncStatus(currentAnc)
                 Log.i(TAG, "noise mode: ui=${report.uiStatus} wire=${report.wire} previous=$previousAnc")
-                // A mode change made outside HyperDrop (e.g. an earbud long-press) refreshes
-                // battery immediately. App-originated SETs update currentAnc first, so their
-                // echo does not trigger an extra battery query.
+                // A mode change made outside HyperDrop (e.g. an earbud button press, surfacing
+                // through the poll) refreshes battery immediately. App-originated SETs update
+                // currentAnc first, so their echo does not trigger an extra battery query.
                 if (previousAnc != currentAnc) queryBattery()
             }
             is GaiaReport.Battery -> {
@@ -939,6 +972,8 @@ class DeviceSession {
         mShowedConnectedToast = false
         currentWearStatus = WearStatus()
         currentAnc = 1
+        pendingAnc = null
+        pendingAncUntilMs = 0L
         currentSmartAncLevel = -1
         currentTransparencyVocalEnhancement = false
         currentSpatialAudioMode = SpatialAudioMode.OFF
@@ -1049,11 +1084,15 @@ class DeviceSession {
     fun setANCMode(mode: Int) {
         val packet = commandTable().setNoiseMode(mode) ?: return
         Log.d(TAG, "set noise mode: ui=$mode wire=${commandTable().ancUiToWire(mode)}")
+        pendingAnc = mode
+        pendingAncUntilMs = SystemClock.elapsedRealtime() + ANC_CONFIRM_WINDOW_MS
         currentAnc = mode
         changeUIAncStatus(mode)
         CoroutineScope(Dispatchers.IO).launch {
             sendPacketSafe(GaiaTransport.v4(packet), "noise control")
-            delay(180)
+            // Robin never echoes SETs and answers a quick GET with its pre-SET state, so the
+            // confirmation query is delayed until after the confirm window.
+            delay(ANC_CONFIRM_QUERY_DELAY_MS)
             sendPacketSafe(GaiaTransport.v4(commandTable().queryNoiseMode))
         }
     }
@@ -1072,6 +1111,24 @@ class DeviceSession {
     fun queryStatus(immediateReconnect: Boolean = true) {
         CoroutineScope(Dispatchers.IO).launch {
             sendStatusQueryPackets(immediateReconnect)
+        }
+    }
+
+    /**
+     * Poll the noise mode while an ANC surface is open (in-app page, popup, HyperOS settings
+     * page). Robin's firmware never pushes mode changes, so an earbud button press is silent
+     * on the wire and passive listening is impossible — the official app polls the same way.
+     * The loop ends with the app-UI window (UI closed, or its timeout), keeping idle SPP
+     * traffic at zero when nothing is watching.
+     */
+    private fun startAncPoll() {
+        ancPollJob?.cancel()
+        ancPollJob = CoroutineScope(Dispatchers.IO).launch {
+            while (isConnected && !yielded && isAppUiActive()) {
+                delay(ANC_UI_POLL_INTERVAL_MS)
+                if (!isConnected || yielded || !isAppUiActive()) break
+                sendPacketSafe(GaiaTransport.v4(commandTable().queryNoiseMode))
+            }
         }
     }
 

@@ -106,7 +106,7 @@ fun MainUI(
     val mainTitle = remember { mutableStateOf("") }
     val batteryParams = remember { mutableStateOf(BatteryParams()) }
     val wearStatus = remember { mutableStateOf(WearStatus()) }
-    val ancMode = remember { mutableStateOf(NoiseControlMode.OFF) }
+    val ancMode = AncUiState.mode
     /** Smart-mode current auto-applied NC level (LIGHT/MEDIUM/DEEP), or null. */
     val smartAncLevel = remember { mutableStateOf<NoiseControlMode?>(null) }
     val hookConnected = remember { mutableStateOf(openDetail) }
@@ -251,7 +251,7 @@ fun MainUI(
                 when (p1?.action) {
                     OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
                         connectedDeviceAddress = p1.getStringExtra("address") ?: connectedDeviceAddress
-                        ancMode.value = ancModeFromUiStatus(p1.getIntExtra("status", 1))
+                        AncUiState.acceptStatus(p1.getIntExtra("status", 1))
                     }
 
                     OppoPodsAction.ACTION_PODS_SMART_ANC_LEVEL_CHANGED -> {
@@ -389,10 +389,22 @@ fun MainUI(
         }
     }
 
-    // Event-driven status: query once when the visible app state changes. Earbud-originated ANC
-    // changes are received over the existing RFCOMM reader, so no background timer is needed.
+    // Event-driven status: query once when the visible app state changes. Robin's firmware
+    // never pushes noise-mode changes though (an earbud button press is silent on the wire),
+    // so while the earphones page is visible the module is also asked to re-query
+    // periodically — the module stops polling once no surface is open.
     LaunchedEffect(selectedTab, hookConnected.value) {
         sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_PODS_UI_INIT)
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == MainTab.Earphones) {
+            while (true) {
+                delay(15_000)
+                if (selectedTab != MainTab.Earphones) break
+                sendBluetoothModuleBroadcast(context, OppoPodsAction.ACTION_REFRESH_STATUS)
+            }
+        }
     }
 
     LaunchedEffect(lastBluetoothServiceAliveMs) {
@@ -404,7 +416,7 @@ fun MainUI(
     }
 
     fun setAncMode(mode: NoiseControlMode) {
-        ancMode.value = mode
+        AncUiState.select(mode)
         val status = mode.toUiStatus()
         Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
             this.putExtra("status", status)
@@ -431,7 +443,7 @@ fun MainUI(
         mainTitle.value = ""
         batteryParams.value = BatteryParams()
         wearStatus.value = WearStatus()
-        ancMode.value = NoiseControlMode.OFF
+        AncUiState.clear()
         hookConnected.value = false
         hookConnectionState = "disconnected"
         showConnectErrorDialog = false

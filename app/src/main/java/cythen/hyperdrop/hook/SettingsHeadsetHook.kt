@@ -22,7 +22,11 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import cythen.hyperdrop.BuildConfig
+import cythen.hyperdrop.device.AncModeOption
 import cythen.hyperdrop.device.DeviceRegistry
+import cythen.hyperdrop.pods.NoiseControlMode
+import cythen.hyperdrop.pods.isNoiseCancellation
+import cythen.hyperdrop.pods.toUiStatus
 import cythen.hyperdrop.utils.miuiStrongToast.data.BatteryParams
 import cythen.hyperdrop.utils.miuiStrongToast.data.OppoPodsAction
 import cythen.hyperdrop.utils.miuiStrongToast.data.PodParams
@@ -611,6 +615,29 @@ object SettingsHeadsetHook : HookContext() {
     }
 
 
+    /** ANC quick modes declared by the active device profile, in UI order. */
+    private fun activeAncModes(): List<AncModeOption> {
+        val profile = DeviceRegistry.profileFor(currentName)
+        return profile.capabilities.quickModes
+            .ifEmpty { profile.capabilities.ancModes }
+            .ifEmpty {
+                listOf(
+                    AncModeOption(
+                        NoiseControlMode.NOISE_CANCELLATION,
+                        cythen.hyperdrop.R.string.noise_cancellation_title,
+                    ),
+                )
+            }
+    }
+
+    /** Mode to pick when the user turns ANC on from "off". */
+    private fun defaultAncStatus(): Int {
+        val modes = activeAncModes()
+        return modes.firstOrNull { it.mode == NoiseControlMode.ADAPTIVE }?.mode?.toUiStatus()
+            ?: modes.firstOrNull { it.mode.isNoiseCancellation() }?.mode?.toUiStatus()
+            ?: 2
+    }
+
     private data class PuddingAncUi(
         val controlRow: LinearLayout,
         val labels: List<TextView>,
@@ -732,7 +759,7 @@ object SettingsHeadsetHook : HookContext() {
             } else {
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50))
             }
-            val titles = listOf("基础", "自适应", "抗风噪")
+            val titles = activeAncModes().map { host.context.getString(it.labelRes) }
             titles.forEachIndexed { index, title ->
                 addView(TextView(context).apply {
                     text = title
@@ -748,7 +775,7 @@ object SettingsHeadsetHook : HookContext() {
         }
 
         val customLabels = (0 until row.childCount).mapNotNull { row.getChildAt(it) as? TextView }
-        if (customLabels.size != 3) return
+        if (customLabels.size != activeAncModes().size) return
 
         val hidden = (frameworkLabelViews + listOfNotNull(frameworkSlider)).distinct()
         val ui = PuddingAncUi(row, customLabels, hidden)
@@ -758,11 +785,8 @@ object SettingsHeadsetHook : HookContext() {
     }
 
     private fun selectPuddingAncLevel(fragment: Any?, index: Int) {
-        val mode = when (index.coerceIn(0, 2)) {
-            0 -> 2 // BASIC
-            1 -> 4 // ADAPTIVE
-            else -> 5 // WIND_REDUCTION
-        }
+        val mode = activeAncModes().getOrNull(index)
+            ?.mode?.toUiStatus() ?: return
         currentAnc = mode
         sendOppoAnc(mode)
         sendAncChanged(mode)
@@ -776,13 +800,9 @@ object SettingsHeadsetHook : HookContext() {
 
     private fun updatePuddingThreeModeUi(fragment: Any?, ui: PuddingAncUi) {
         ui.hiddenFrameworkViews.forEach { it.visibility = View.GONE }
-        val selected = when (currentAnc) {
-            2 -> 0
-            4 -> 1
-            5 -> 2
-            else -> 1
-        }
-        val active = currentAnc == 2 || currentAnc == 4 || currentAnc == 5
+        val modes = activeAncModes()
+        val selected = modes.indexOfFirst { it.mode.toUiStatus() == currentAnc }
+        val active = selected >= 0
         ui.controlRow.visibility = if (active) View.VISIBLE else View.GONE
 
         val colors = ui.controlRow.context.obtainStyledAttributes(
@@ -1053,8 +1073,8 @@ object SettingsHeadsetHook : HookContext() {
     private fun oppoAncFromSettings(mode: Int): Int {
         return when (mode) {
             1 -> when (currentAnc) {
-                2, 4, 5 -> currentAnc
-                else -> 4 // entering ANC defaults to PUDDING adaptive ANC
+                2, 4, 5, 6, 7, 8 -> currentAnc
+                else -> defaultAncStatus()
             }
             2 -> 3 // transparency
             else -> 1 // off

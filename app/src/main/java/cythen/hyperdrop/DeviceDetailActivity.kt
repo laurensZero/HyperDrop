@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import cythen.hyperdrop.config.ConfigManager
+import cythen.hyperdrop.config.PodImagePrefs
 import cythen.hyperdrop.device.DeviceRegistry
 import cythen.hyperdrop.hook.SettingsHeadsetHook
 import cythen.hyperdrop.pods.NoiseControlMode
@@ -30,6 +32,7 @@ import cythen.hyperdrop.pods.ancModeFromUiStatus
 import cythen.hyperdrop.pods.toUiStatus
 import cythen.hyperdrop.pods.WearStatus
 import cythen.hyperdrop.ui.AppLocale
+import cythen.hyperdrop.ui.AncUiState
 import cythen.hyperdrop.ui.AppTheme
 import cythen.hyperdrop.ui.appBackground
 import cythen.hyperdrop.ui.pages.PodDetailPage
@@ -98,10 +101,16 @@ class DeviceDetailActivity : ComponentActivity() {
             AppTheme(colorSchemeMode = colorSchemeMode, accentMode = accentMode) {
                 val context = this@DeviceDetailActivity
                 val battery = remember { mutableStateOf(BatteryParams()) }
-                val anc = remember { mutableStateOf(NoiseControlMode.OFF) }
+                val anc = AncUiState.mode
                 val gain = remember { mutableStateOf(1) }
                 val led = remember { mutableStateOf(true) }
                 val deviceName = remember { mutableStateOf("MOONDROP Pudding") }
+                val boxImagePath = remember(bluetoothDevice?.address) {
+                    PodImagePrefs.findOrLatest(
+                        prefs,
+                        bluetoothDevice?.address ?: intent.getStringExtra("bluetoothaddress").orEmpty(),
+                    )?.boxImagePath
+                }
                 val controlsYielded = remember { mutableStateOf(false) }
                 val capabilities = DeviceRegistry.detectDeviceCapabilities(deviceName.value)
                 val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -128,7 +137,7 @@ class DeviceDetailActivity : ComponentActivity() {
                                     intent.readThreeBatteryValues()?.let { battery.value = it }
                                 }
                                 OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                                    anc.value = ancModeFromUiStatus(intent.getIntExtra("status", 1))
+                                    AncUiState.acceptStatus(intent.getIntExtra("status", 1))
                                 }
                                 OppoPodsAction.ACTION_PODS_GAIN_LEVEL_CHANGED -> {
                                     gain.value = intent.getIntExtra("level", gain.value).coerceIn(0, 2)
@@ -194,11 +203,13 @@ class DeviceDetailActivity : ComponentActivity() {
                             ),
                             bottomContentPadding = padding.calculateBottomPadding(),
                             podName = deviceName.value,
+                            boxImagePath = boxImagePath,
+                            defaultImageRes = DeviceRegistry.profileFor(deviceName.value).defaultImageRes,
                             batteryParams = battery.value,
                             wearStatus = WearStatus(),
                             ancMode = anc.value,
                             onAncModeChange = { mode ->
-                                anc.value = mode
+                                AncUiState.select(mode)
                                 val status = mode.toUiStatus()
                                 sendToBluetooth(OppoPodsAction.ACTION_ANC_SELECT) { putExtra("status", status) }
                             },

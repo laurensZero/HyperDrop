@@ -15,6 +15,13 @@ data class DeviceCapabilities(
     val ancImplementation: AncImplementation,
     /** Selectable ANC strength tabs, in UI order. Empty means "no strength picker". */
     val ancModes: List<AncModeOption> = emptyList(),
+    /**
+     * Modes shown by the system Settings card as a segmented row. Defaults to [ancModes]
+     * so single-flavour devices keep the old behaviour; models whose noise modes are a
+     * flat list (off / ANC / transparency) can override it without exposing fake
+     * "strength" tabs in the in-app switch.
+     */
+    val quickModes: List<AncModeOption> = ancModes,
 ) {
     companion object {
         /** Conservative baseline for a name that matches no known model. */

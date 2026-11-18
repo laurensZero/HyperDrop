@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
@@ -57,20 +56,16 @@ object FocusIslandUtil {
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastShownAt < 700L) return true
 
-            val moduleContext = runCatching {
-                context.createPackageContext(BuildConfig.APPLICATION_ID, Context.CONTEXT_IGNORE_SECURITY)
-            }.getOrElse {
-                android.util.Log.e(TAG, "createPackageContext failed for ${BuildConfig.APPLICATION_ID}", it)
-                Log.e(TAG, "createPackageContext failed", it)
-                return false
-            }
-
-            val leftBitmap = BitmapFactory.decodeResource(moduleContext.resources, R.drawable.img_left)
-            val rightBitmap = BitmapFactory.decodeResource(moduleContext.resources, R.drawable.img_right)
+            val leftBitmap = PodImageLoader.loadIslandLeftBitmap(context, prefs, address)
+            val rightBitmap = PodImageLoader.loadIslandRightBitmap(context, prefs, address)
             if (leftBitmap == null || rightBitmap == null) {
                 android.util.Log.e(TAG, "decode island icons failed left=$leftBitmap right=$rightBitmap")
                 return false
             }
+
+            // Brand the island with the connected model instead of a hardcoded name.
+            val deviceLabel = PodImageLoader.resolveDeviceName(context, prefs, address)
+                ?: "MOONDROP Pudding"
 
             val leftText = if (leftConnected) "${batteryParams.left!!.battery}" else "-"
             val rightText = if (rightConnected) "${batteryParams.right!!.battery}" else "-"
@@ -96,7 +91,7 @@ object FocusIslandUtil {
                 val picRight = createPicture("key_pic_right", rightIcon)
 
                 enableFloat = true
-                ticker = "MOONDROP Pudding"
+                ticker = deviceLabel
                 tickerPic = picLeft
                 isShowNotification = false
 
@@ -127,7 +122,7 @@ object FocusIslandUtil {
                         }
                     }
                     shareData {
-                        title = "MOONDROP Pudding"
+                        title = deviceLabel
                         content = contentText
                         shareContent = contentText
                     }
@@ -148,9 +143,9 @@ object FocusIslandUtil {
 
             val notification = Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-                .setContentTitle("MOONDROP Pudding")
+                .setContentTitle(deviceLabel)
                 .setContentText(contentText)
-                .setTicker("MOONDROP Pudding")
+                .setTicker(deviceLabel)
                 .setContentIntent(popupIntent)
                 .setOnlyAlertOnce(true)
                 .addExtras(extras)

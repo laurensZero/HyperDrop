@@ -68,6 +68,7 @@ fun PodDetailPage(
     ledEnabled: Boolean = true,
     onLedEnabledChange: (Boolean) -> Unit = {},
     boxImagePath: String? = null,
+    defaultImageRes: Int = R.drawable.img_box,
     showAppSettingsEntry: Boolean = false,
     onOpenAppSettings: () -> Unit = {},
     showSystemSettingsEntry: Boolean = false,
@@ -91,7 +92,7 @@ fun PodDetailPage(
                 verticalArrangement = Arrangement.Center
             ) {
                 Image(
-                    painter = rememberPodImagePainter(boxImagePath),
+                    painter = rememberPodImagePainter(boxImagePath, defaultImageRes),
                     contentDescription = "Earphones",
                     modifier = Modifier
                         .fillMaxWidth(0.82f)
@@ -152,7 +153,7 @@ fun PodDetailPage(
     ) {
         item {
             Image(
-                painter = rememberPodImagePainter(boxImagePath),
+                painter = rememberPodImagePainter(boxImagePath, defaultImageRes),
                 contentDescription = "Earphones",
                 modifier = Modifier
                     .fillMaxWidth(0.7f)
@@ -196,13 +197,13 @@ fun PodDetailPage(
  * transparent MOONDROP PUDDING image (R.drawable.img_box).
  */
 @Composable
-private fun rememberPodImagePainter(path: String?) = remember(path) {
+private fun rememberPodImagePainter(path: String?, defaultImageRes: Int) = remember(path, defaultImageRes) {
     path?.let {
         runCatching { BitmapFactory.decodeFile(it) }
             .getOrNull()
             ?.let { bitmap -> BitmapPainter(bitmap.asImageBitmap()) }
     }
-} ?: painterResource(R.drawable.img_box)
+} ?: painterResource(defaultImageRes)
 
 private fun LazyListScope.podControlItems(
     batteryParams: BatteryParams,

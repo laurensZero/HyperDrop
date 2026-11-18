@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.SystemClock
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -43,6 +44,7 @@ import cythen.hyperdrop.device.AncModeOption
 import cythen.hyperdrop.config.ConfigManager
 import cythen.hyperdrop.ui.AppLocale
 import cythen.hyperdrop.ui.AppTheme
+import cythen.hyperdrop.ui.AncUiState
 import cythen.hyperdrop.ui.components.AncSwitch
 import cythen.hyperdrop.ui.components.PodStatus
 import cythen.hyperdrop.utils.miuiStrongToast.data.BatteryParams
@@ -153,7 +155,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
     }
 
     val batteryParams = remember { mutableStateOf(BatteryParams()) }
-    val ancMode = remember { mutableStateOf(NoiseControlMode.OFF) }
+    val ancMode = AncUiState.mode
     val transparencyVocalEnhancement = remember { mutableStateOf(false) }
     val deviceName = remember { mutableStateOf("") }
     // True while the official MOONDROP app owns the control channel and this module has
@@ -172,7 +174,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
             override fun onReceive(p0: Context?, p1: Intent?) {
                 when (p1?.action) {
                     OppoPodsAction.ACTION_PODS_ANC_CHANGED -> {
-                        ancMode.value = ancModeFromUiStatus(p1.getIntExtra("status", 1))
+                        AncUiState.acceptStatus(p1.getIntExtra("status", 1))
                     }
                     OppoPodsAction.ACTION_PODS_BATTERY_CHANGED -> {
                         batteryParams.value =
@@ -243,7 +245,7 @@ private fun PopupContent(onMore: () -> Unit, onDone: () -> Unit) {
     }
 
     fun setAncMode(mode: NoiseControlMode) {
-        ancMode.value = mode
+        AncUiState.select(mode)
         val status = mode.toUiStatus()
         Intent(OppoPodsAction.ACTION_ANC_SELECT).apply {
             putExtra("status", status)

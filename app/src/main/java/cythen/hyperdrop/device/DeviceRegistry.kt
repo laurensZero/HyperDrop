@@ -19,6 +19,7 @@ object DeviceRegistry {
      */
     val registeredProfiles: List<DeviceProfile> = listOf(
         PuddingProfile,
+        RobinProfile,
     )
 
     /** Conservative fallback; never matched directly, only returned by [profileFor]. */

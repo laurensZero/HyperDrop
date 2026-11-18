@@ -1,15 +1,17 @@
 package cythen.hyperdrop.utils
 
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import cythen.hyperdrop.R
 import cythen.hyperdrop.config.PodImagePrefs
 import cythen.hyperdrop.config.PodImageResource
 import cythen.hyperdrop.config.imageUri
+import cythen.hyperdrop.device.DeviceRegistry
 
 object PodImageLoader {
+    private const val TAG = "HyperDrop-PodImage"
     private const val MODULE_PACKAGE = "cythen.hyperdrop"
 
     fun loadBitmap(
@@ -59,7 +61,13 @@ object PodImageLoader {
     }
 
     fun loadBoxBitmap(context: Context, prefs: SharedPreferences, address: String): Bitmap? {
-        return loadBitmap(context, prefs, address, PodImageResource.BOX, R.drawable.img_box)
+        return loadBitmap(
+            context,
+            prefs,
+            address,
+            PodImageResource.BOX,
+            defaultProductImageRes(context, prefs, address),
+        )
     }
 
 
@@ -70,7 +78,7 @@ object PodImageLoader {
             address = address,
             resource = PodImageResource.LEFT,
             customFallbackResource = PodImageResource.BOX,
-            fallbackResId = R.drawable.img_left,
+            fallbackResId = defaultProductImageRes(context, prefs, address) { it.defaultLeftImageRes },
         )
     }
 
@@ -81,8 +89,40 @@ object PodImageLoader {
             address = address,
             resource = PodImageResource.RIGHT,
             customFallbackResource = PodImageResource.BOX,
-            fallbackResId = R.drawable.img_right,
+            fallbackResId = defaultProductImageRes(context, prefs, address) { it.defaultRightImageRes },
         )
+    }
+
+    /**
+     * Best-effort device name for [address]: saved per-device prefs first (matches what
+     * the app UI displays), then the live Bluetooth name for the same address. Never
+     * falls back to another device's saved entry.
+     */
+    fun resolveDeviceName(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+    ): String? {
+        return runCatching {
+            PodImagePrefs.findOrLatest(prefs, address)?.name
+                ?: context.getSystemService(BluetoothManager::class.java)
+                    ?.adapter
+                    ?.getRemoteDevice(address)
+                    ?.name
+        }.getOrNull()
+    }
+
+    @Suppress("MissingPermission")
+    private fun defaultProductImageRes(
+        context: Context,
+        prefs: SharedPreferences,
+        address: String,
+        select: (cythen.hyperdrop.device.DeviceProfile) -> Int = { it.defaultImageRes },
+    ): Int {
+        val name = resolveDeviceName(context, prefs, address)
+        val resId = select(DeviceRegistry.profileFor(name))
+        android.util.Log.d(TAG, "default product image address=$address name=$name res=$resId")
+        return resId
     }
 
     private fun decodeUri(context: Context, uri: android.net.Uri): Bitmap? {

@@ -12,6 +12,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import cythen.hyperdrop.R
 import cythen.hyperdrop.device.AncModeOption
+import cythen.hyperdrop.device.DeviceRegistry
 import cythen.hyperdrop.pods.NoiseControlMode
 import cythen.hyperdrop.pods.WearStatus
 import cythen.hyperdrop.utils.miuiStrongToast.data.BatteryParams
@@ -83,6 +84,7 @@ internal fun EarphonesTabPage(
                 spatialSoundSupported = spatialSoundSupported,
                 ancModes = ancModes,
                 boxImagePath = boxImagePath,
+                defaultImageRes = DeviceRegistry.profileFor(displayTitle).defaultImageRes,
             )
         } else {
             DevicePickerPage(

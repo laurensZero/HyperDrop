@@ -54,7 +54,11 @@ object PodImagePrefs {
     }
 
     fun findOrLatest(prefs: SharedPreferences, address: String): EarphonePref? {
-        return find(prefs, address) ?: load(prefs).maxByOrNull { it.lastConnectedAt }
+        // The "latest connected" fallback is only meaningful when we don't know the
+        // address at all; with a real address it would silently return another
+        // model's entry and show that device's images instead.
+        return find(prefs, address)
+            ?: load(prefs).maxByOrNull { it.lastConnectedAt }?.takeIf { address.isBlank() }
     }
 
     fun imageDir(context: Context): File = File(context.filesDir, IMAGE_DIR).apply { mkdirs() }
