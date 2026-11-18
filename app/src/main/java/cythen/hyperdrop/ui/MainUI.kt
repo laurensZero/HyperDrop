@@ -603,10 +603,14 @@ fun MainUI(
 
     val entryProvider = entryProvider<Screen> {
         entry<Screen.Main> {
+            // Callback identities are remembered inline: fresh lambda instances here defeated
+            // skipping in all three pager pages, so every tab flip or status broadcast
+            // recomposed Module/Earphones/Settings wholesale during the slide animation.
+            // These closures only read stable state holders, so one instance each is safe.
             MainTabsScaffold(
                 tabs = tabs,
                 selectedTab = selectedTab,
-                onTabSelected = { selectedTab = it },
+                onTabSelected = remember { { selectedTab = it } },
                 floatingBottomBar = floatingBottomBar.value,
                 backdrop = backdrop,
                 backgroundColor = backgroundColor,
@@ -616,26 +620,26 @@ fun MainUI(
                 bluetoothServiceResponsive = bluetoothServiceResponsive,
                 bluetoothEnabled = bluetoothState.enabled,
                 bondedDeviceCount = bluetoothState.bondedCount,
-                onBluetoothStatusClick = { openBluetoothSettings() },
-                onPairedBluetoothClick = { openDevicePicker() },
+                onBluetoothStatusClick = remember { { openBluetoothSettings() } },
+                onPairedBluetoothClick = remember { { openDevicePicker() } },
                 showEarphoneDetail = showEarphoneDetail,
                 mainTitle = mainTitle.value,
                 displayTitle = displayTitle,
                 displayBattery = displayBattery,
                 displayWearStatus = displayWearStatus,
                 displayAnc = displayAnc,
-                onAncModeChange = { setAncMode(it) },
+                onAncModeChange = remember { { setAncMode(it) } },
                 smartAncLevel = smartAncLevel.value,
                 displayTransparencyVocalEnhancement = displayTransparencyVocalEnhancement,
-                onTransparencyVocalEnhancementChange = { setTransparencyVocalEnhancement(it) },
+                onTransparencyVocalEnhancementChange = remember { { setTransparencyVocalEnhancement(it) } },
                 spatialAudioMode = spatialAudioMode.value,
-                onSpatialAudioModeChange = { setSpatialAudioMode(it) },
+                onSpatialAudioModeChange = remember { { setSpatialAudioMode(it) } },
                 eqPreset = eqPreset.value,
-                onEqPresetChange = { setEqPreset(it) },
+                onEqPresetChange = remember { { setEqPreset(it) } },
                 gainLevel = gainLevel,
-                onGainLevelChange = { setGainLevel(it) },
+                onGainLevelChange = remember { { setGainLevel(it) } },
                 ledEnabled = ledEnabled,
-                onLedEnabledChange = { setLedEnabled(it) },
+                onLedEnabledChange = remember { { setLedEnabled(it) } },
                 spatialAudioSupported = displayCapabilities.spatialAudioSupported,
                 spatialSoundSupported = displayCapabilities.spatialSoundSwitchSupported,
                 ancModes = displayCapabilities.ancModes,
@@ -643,84 +647,102 @@ fun MainUI(
                 connectedDeviceAddress = connectedDeviceAddress,
                 connectingDeviceAddress = connectingDeviceAddress,
                 showConnectErrorDialog = showConnectErrorDialog,
-                onDeviceSelected = { onDeviceSelected(it) },
-                onConnectedDeviceClick = { onConnectedDeviceClick() },
-                onDeviceDisconnect = { onDeviceDisconnect(it) },
-                onDismissConnectError = { showConnectErrorDialog = false },
+                onDeviceSelected = remember { { onDeviceSelected(it) } },
+                onConnectedDeviceClick = remember { { onConnectedDeviceClick() } },
+                onDeviceDisconnect = remember { { onDeviceDisconnect(it) } },
+                onDismissConnectError = remember { { showConnectErrorDialog = false } },
                 desktopIconHidden = desktopIconHidden,
-                onDesktopIconHiddenChange = {
-                    desktopIconHidden.value = it
-                    setLauncherIconHidden(context, it)
+                onDesktopIconHiddenChange = remember {
+                    {
+                        desktopIconHidden.value = it
+                        setLauncherIconHidden(context, it)
+                    }
                 },
                 yieldToOfficialApp = yieldToOfficialApp,
-                onYieldToOfficialAppChange = {
-                    yieldToOfficialApp.value = it
-                    ConfigManager.updateYieldToOfficialApp(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.android.bluetooth")
-                    broadcastConfigChanged(context, "com.milink.service")
-                    broadcastConfigChanged(context, "com.xiaomi.bluetooth")
-                    broadcastConfigChanged(context, "com.android.settings")
+                onYieldToOfficialAppChange = remember {
+                    {
+                        yieldToOfficialApp.value = it
+                        ConfigManager.updateYieldToOfficialApp(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.android.bluetooth")
+                        broadcastConfigChanged(context, "com.milink.service")
+                        broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                        broadcastConfigChanged(context, "com.android.settings")
+                    }
                 },
                 logLevel = logLevel,
-                onLogLevelChange = {
-                    logLevel.value = it
-                    ConfigManager.updateLogLevel(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.android.bluetooth")
-                    broadcastConfigChanged(context, "com.milink.service")
-                    broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                onLogLevelChange = remember {
+                    {
+                        logLevel.value = it
+                        ConfigManager.updateLogLevel(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.android.bluetooth")
+                        broadcastConfigChanged(context, "com.milink.service")
+                        broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                    }
                 },
                 islandMode = islandMode,
-                onIslandModeChange = {
-                    islandMode.value = it
-                    ConfigManager.updateIslandMode(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.android.bluetooth")
-                    broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                onIslandModeChange = remember {
+                    {
+                        islandMode.value = it
+                        ConfigManager.updateIslandMode(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.android.bluetooth")
+                        broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                    }
                 },
                 islandShowTimings = islandShowTimings,
-                onIslandShowTimingsChange = {
-                    islandShowTimings.value = it
-                    ConfigManager.updateIslandShowTimings(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.android.bluetooth")
+                onIslandShowTimingsChange = remember {
+                    {
+                        islandShowTimings.value = it
+                        ConfigManager.updateIslandShowTimings(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.android.bluetooth")
+                    }
                 },
                 appLanguage = appLanguage,
-                onAppLanguageChange = {
-                    appLanguage.value = it
-                    onAppLanguageChange(it)
+                onAppLanguageChange = remember {
+                    {
+                        appLanguage.value = it
+                        onAppLanguageChange(it)
+                    }
                 },
                 notificationClickAction = notificationClickAction,
-                onNotificationClickActionChange = {
-                    notificationClickAction.value = it
-                    ConfigManager.updateNotificationClickAction(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                onNotificationClickActionChange = remember {
+                    {
+                        notificationClickAction.value = it
+                        ConfigManager.updateNotificationClickAction(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                    }
                 },
                 moreClickAction = moreClickAction,
-                onMoreClickActionChange = {
-                    moreClickAction.value = it
-                    ConfigManager.updateMoreClickAction(prefs, xposedService, it)
+                onMoreClickActionChange = remember {
+                    {
+                        moreClickAction.value = it
+                        ConfigManager.updateMoreClickAction(prefs, xposedService, it)
+                    }
                 },
-                onOpenRfcommDebug = { backStack.add(Screen.RfcommDebug) },
+                onOpenRfcommDebug = remember { { backStack.add(Screen.RfcommDebug) } },
                 fakeDeviceId = fakeDeviceId,
-                onFakeDeviceIdChange = {
-                    fakeDeviceId.value = it
-                    ConfigManager.updateFakeDeviceId(prefs, xposedService, it)
-                    broadcastConfigChanged(context, "com.android.bluetooth")
-                    broadcastConfigChanged(context, "com.android.settings")
-                    broadcastConfigChanged(context, "com.milink.service")
-                    broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                onFakeDeviceIdChange = remember {
+                    {
+                        fakeDeviceId.value = it
+                        ConfigManager.updateFakeDeviceId(prefs, xposedService, it)
+                        broadcastConfigChanged(context, "com.android.bluetooth")
+                        broadcastConfigChanged(context, "com.android.settings")
+                        broadcastConfigChanged(context, "com.milink.service")
+                        broadcastConfigChanged(context, "com.xiaomi.bluetooth")
+                    }
                 },
-                onOpenTheme = { backStack.add(Screen.Theme) },
-                onOpenAbout = { backStack.add(Screen.About) },
+                onOpenTheme = remember { { backStack.add(Screen.Theme) } },
+                onOpenAbout = remember { { backStack.add(Screen.About) } },
                 showRestartScopeDialog = showRestartScopeDialog,
                 restartingScopes = restartingScopes,
-                onShowRestartScopeDialog = { showRestartScopeDialog = true },
-                onDismissRestartScopeDialog = { showRestartScopeDialog = false },
-                onRestartScopes = { restartScopes(it) },
-                onBackToDevicePicker = { backToDevicePicker() },
-                onOpenSystemHeadsetSettings = { openSystemHeadsetSettings() },
-                onSavePodImages = { address, name, images, clearedImages ->
+                onShowRestartScopeDialog = remember { { showRestartScopeDialog = true } },
+                onDismissRestartScopeDialog = remember { { showRestartScopeDialog = false } },
+                onRestartScopes = remember { { restartScopes(it) } },
+                onBackToDevicePicker = remember { { backToDevicePicker() } },
+                onOpenSystemHeadsetSettings = remember { { openSystemHeadsetSettings() } },
+                onSavePodImages = remember { { address, name, images, clearedImages ->
                     savePodImages(address, name, images, clearedImages)
-                },
-                onSavePodImageBytes = { address, name, images -> savePodImageBytes(address, name, images) },
+                } },
+                onSavePodImageBytes = remember { { address, name, images -> savePodImageBytes(address, name, images) } },
             )
         }
         entry<Screen.About> {

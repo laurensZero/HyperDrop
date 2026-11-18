@@ -1,6 +1,7 @@
 package cythen.hyperdrop.ui.pages
 
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
@@ -36,6 +39,8 @@ import cythen.hyperdrop.pods.WearStatus
 import cythen.hyperdrop.ui.components.AncSwitch
 import cythen.hyperdrop.ui.components.PodStatus
 import cythen.hyperdrop.utils.miuiStrongToast.data.BatteryParams
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Text
@@ -197,13 +202,36 @@ fun PodDetailPage(
  * transparent MOONDROP PUDDING image (R.drawable.img_box).
  */
 @Composable
-private fun rememberPodImagePainter(path: String?, defaultImageRes: Int) = remember(path, defaultImageRes) {
-    path?.let {
-        runCatching { BitmapFactory.decodeFile(it) }
-            .getOrNull()
-            ?.let { bitmap -> BitmapPainter(bitmap.asImageBitmap()) }
+private fun rememberPodImagePainter(path: String?, defaultImageRes: Int): Painter {
+    // Melody imports are raw copies of the official app's artwork, so decode off the main
+    // thread and downsample to display size. A synchronous full-res decode here froze
+    // composition and left a huge texture to redraw on every pager frame during tab slides.
+    val customPainter by produceState<Painter?>(initialValue = null, path) {
+        if (path == null) {
+            value = null
+        } else {
+            value = withContext(Dispatchers.IO) {
+                runCatching { decodePodImageFile(path) }.getOrNull()
+            }?.let { bitmap -> BitmapPainter(bitmap.asImageBitmap()) }
+        }
     }
-} ?: painterResource(defaultImageRes)
+    return customPainter ?: painterResource(defaultImageRes)
+}
+
+/** The detail page draws the box art at most ~360dp wide; 1024px is ample headroom. */
+private const val POD_IMAGE_MAX_DIMENSION_PX = 1024
+
+private fun decodePodImageFile(path: String): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    val largestDimension = maxOf(bounds.outWidth, bounds.outHeight)
+    var sampleSize = 1
+    while (largestDimension / (sampleSize * 2) >= POD_IMAGE_MAX_DIMENSION_PX) {
+        sampleSize *= 2
+    }
+    return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sampleSize })
+}
 
 private fun LazyListScope.podControlItems(
     batteryParams: BatteryParams,

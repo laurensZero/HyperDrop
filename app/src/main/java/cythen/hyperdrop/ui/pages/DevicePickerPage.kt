@@ -33,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.core.content.ContextCompat
 import cythen.hyperdrop.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -137,11 +140,23 @@ fun DevicePickerPage(
     val btManager = context.getSystemService(BluetoothManager::class.java)
     val adapter = btManager?.adapter
     val bluetoothEnabled = adapter?.isEnabled == true
-    val pairedDevices = remember(hasPermission, bluetoothEnabled, bluetoothRefreshToken) {
-        if (!bluetoothEnabled) emptyList() else adapter?.bondedDevices?.toList()
-            ?.filter { cythen.hyperdrop.device.DeviceRegistry.isSupported(it.name ?: it.alias) }
-            ?.sortedBy { it.name ?: it.alias ?: "" }
-            ?: emptyList()
+    // bondedDevices is binder IPC into the Bluetooth stack and can block for hundreds of
+    // milliseconds when it is busy, so keep it off the composition thread.
+    val pairedDevices by produceState<List<BluetoothDevice>>(
+        initialValue = emptyList(),
+        hasPermission,
+        bluetoothEnabled,
+        bluetoothRefreshToken,
+    ) {
+        value = if (!hasPermission || !bluetoothEnabled) {
+            emptyList()
+        } else {
+            withContext(Dispatchers.IO) {
+                adapter?.bondedDevices.orEmpty()
+                    .filter { cythen.hyperdrop.device.DeviceRegistry.isSupported(it.name ?: it.alias) }
+                    .sortedBy { it.name ?: it.alias ?: "" }
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
