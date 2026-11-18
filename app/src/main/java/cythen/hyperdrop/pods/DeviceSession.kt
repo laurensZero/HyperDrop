@@ -44,12 +44,9 @@ private const val TAG = "HyperDrop-DeviceSession"
 private const val AUTO_RECONNECT_DELAY_MS = 120_000L
 private const val APP_UI_ACTIVE_TIMEOUT_MS = 75_000L
 private const val DEFAULT_GAIN_LEVEL = 1 // medium (UI low/medium/high = 0/1/2)
-/** After an app-originated noise-mode SET, query responses that disagree with the target
- *  within this window are the earbud's stale pre-SET state (Robin applies the SET
- *  asynchronously and never echoes it) and are ignored. */
-private const val ANC_CONFIRM_WINDOW_MS = 3_000L
-/** Delayed re-query after a SET; its response lands outside the confirm window, so the UI
- *  converges even though Robin sends no SET echo at all. */
+/** Delayed re-query after a noise-mode SET: an agreeing reply lifts the GET-reconciliation
+ *  suspension, a stale reply (Robin keeps serving its pre-SET value) keeps the locally
+ *  confirmed mode authoritative. */
 private const val ANC_CONFIRM_QUERY_DELAY_MS = 4_000L
 /** Noise-mode poll interval while an ANC surface (app page / popup / system page) is open. */
 private const val ANC_UI_POLL_INTERVAL_MS = 5_000L
@@ -86,8 +83,9 @@ class DeviceSession {
     private var lastTempBatt = 0
     lateinit var currentBatteryParams: BatteryParams
     private var currentAnc: Int = 1
+    /** Locally confirmed noise mode after a SET; GET responses disagreeing with it are
+     *  treated as the earbud's stale pre-SET cache (Robin) until one agrees with it. */
     private var pendingAnc: Int? = null
-    private var pendingAncUntilMs: Long = 0L
     private var ancPollJob: kotlinx.coroutines.Job? = null
     /** -1 = unknown / not in smart mode; otherwise a [NoiseControlMode].ordinal of the
      *  level smart mode is currently auto-applying (light/medium/deep). */
@@ -898,15 +896,19 @@ class DeviceSession {
         when (val report = commandTable().parse(payload)) {
             is GaiaReport.AncMode -> {
                 val pending = pendingAnc
-                if (pending != null && !report.isNotification &&
-                    report.uiStatus != pending &&
-                    SystemClock.elapsedRealtime() < pendingAncUntilMs
-                ) {
-                    Log.w(TAG, "ignoring stale noise mode during SET confirm window: ui=${report.uiStatus} pending=$pending")
+                if (pending != null && !report.isNotification && report.uiStatus != pending) {
+                    // Robin never echoes a SET and its query endpoint keeps answering with
+                    // the pre-SET value long after the mode actually changed. A GET that
+                    // disagrees with the locally confirmed mode is stale — never let it
+                    // revert the user's choice (the official app never re-GETs after SET
+                    // for the same reason). Reconciliation resumes once a GET agrees.
+                    Log.w(TAG, "ignoring stale noise mode query: ui=${report.uiStatus} local=$pending")
                     return
                 }
-                pendingAnc = null
-                pendingAncUntilMs = 0L
+                if (pending != null && !report.isNotification) {
+                    // The query endpoint caught up with our SET: resume GET reconciliation.
+                    pendingAnc = null
+                }
                 val previousAnc = currentAnc
                 currentAnc = report.uiStatus
                 changeUIAncStatus(currentAnc)
@@ -973,7 +975,6 @@ class DeviceSession {
         currentWearStatus = WearStatus()
         currentAnc = 1
         pendingAnc = null
-        pendingAncUntilMs = 0L
         currentSmartAncLevel = -1
         currentTransparencyVocalEnhancement = false
         currentSpatialAudioMode = SpatialAudioMode.OFF
@@ -1084,14 +1085,16 @@ class DeviceSession {
     fun setANCMode(mode: Int) {
         val packet = commandTable().setNoiseMode(mode) ?: return
         Log.d(TAG, "set noise mode: ui=$mode wire=${commandTable().ancUiToWire(mode)}")
+        // Locally confirm the user's choice and suspend GET reconciliation: GETs are
+        // ignored until one finally reports the SET value (see handleGaiaPayload).
         pendingAnc = mode
-        pendingAncUntilMs = SystemClock.elapsedRealtime() + ANC_CONFIRM_WINDOW_MS
         currentAnc = mode
         changeUIAncStatus(mode)
         CoroutineScope(Dispatchers.IO).launch {
             sendPacketSafe(GaiaTransport.v4(packet), "noise control")
-            // Robin never echoes SETs and answers a quick GET with its pre-SET state, so the
-            // confirmation query is delayed until after the confirm window.
+            // Robin never echoes SETs and answers a quick GET with its pre-SET state, so
+            // the confirmation query is delayed; an agreeing reply lifts the suspension,
+            // a stale reply keeps the local value authoritative.
             delay(ANC_CONFIRM_QUERY_DELAY_MS)
             sendPacketSafe(GaiaTransport.v4(commandTable().queryNoiseMode))
         }
